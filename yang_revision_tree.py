@@ -53,8 +53,6 @@ class Module:
       'release': release
     }
     for (lineno, line) in enumerate(result.stdout.split('\n'),1):
-      #if debug:
-      #  print(f"DBG sn:{filepath.name}:{lineno}: {line}")
       if line == '}':
         break # The module section is done when we find an unindented end-brace
       # Data format:
@@ -228,7 +226,9 @@ class Library:
         # Check that namespace and prefix are the same
         lib_mod = self.get_module(mod.modulename,Library.ANY_REVISION)
         self.mods[mod.modulename][mod.modulerevision] = mod
-        if lib_mod.namespace != mod.namespace and mod.namespace != 'undefined':
+        if (lib_mod.namespace != mod.namespace and 
+            mod.namespace != 'undefined' and 
+            lib_mod.namespace != 'undefined'):
           #print(f"XXX '{mod.namespace}'")
           self.log_error(Library.DIFF_NAMESPACE, [lib_mod, mod])
           continue
@@ -269,29 +269,29 @@ class Library:
       elif code == Library.KNOWN_REVISION:
         print(f"=           {mods[0].modulename}/{mods[0].modulerevision}")
       elif code == Library.COLL_PREFIX:
-        print(f"ERROR  ==>  Prefix collision between")
+        print(f"ERROR {code} ==>  Prefix collision between")
         for mod in mods:
-          print(f"            {mod.modulename}/{mod.modulerevision} {mod.prefix} from {mod.release} {mod.filename}")
+          print(f"             {mod.modulename}/{mod.modulerevision} {mod.prefix} from {mod.release} {mod.filename}")
       elif code == Library.COLL_NAMESPACE:
-        print(f"ERROR  ==>  Namespace collision between")
+        print(f"ERROR {code} ==>  Namespace collision between")
         for mod in mods:
-          print(f"            {mod.modulename}/{mod.modulerevision} {mod.namespace} from {mod.release} {mod.filename}")
+          print(f"             {mod.modulename}/{mod.modulerevision} {mod.namespace} from {mod.release} {mod.filename}")
       elif code == Library.DIFF_PREFIX:
-        print(f"ERROR  ==>  Modules with thge same name but different prefixes")
+        print(f"ERROR {code} ==>  Modules with thge same name but different prefixes")
         for mod in mods:
-          print(f"            {mod.modulename}/{mod.modulerevision} {mod.prefix} from {mod.release} {mod.filename}")
+          print(f"             {mod.modulename}/{mod.modulerevision} {mod.prefix} from {mod.release} {mod.filename}")
       elif code == Library.DIFF_NAMESPACE:
-        print(f"ERROR  ==>  Modules with the same name but different namespaces")
+        print(f"ERROR {code} ==>  Modules with the same name but different namespaces")
         for mod in mods:
-          print(f"            {mod.modulename}/{mod.modulerevision} {mod.namespace} from {mod.release} {mod.filename}")
+          print(f"             {mod.modulename}/{mod.modulerevision} {mod.namespace} from {mod.release} {mod.filename}")
       elif code == Library.DIFF_CHECKSUM:
-        print(f"ERROR  ==>  Modules with the same name and revision but different checksums")
+        print(f"ERROR {code} ==>  Modules with the same name and revision but different checksums")
         for mod in mods:
-          print(f"            {mod.modulename}/{mod.modulerevision} {mod.checksum} from {mod.release} {mod.filename}")
+          print(f"             {mod.modulename}/{mod.modulerevision} {mod.checksum} from {mod.release} {mod.filename}")
       else:
-        print(f"ERROR  ==>  Generic error with")
+        print(f"ERROR {code} ==>  Generic error with")
         for mod in mods:
-          print(f"            {mod.modulename}/{mod.modulerevision} from {mod.release} {mod.filename}")
+          print(f"             {mod.modulename}/{mod.modulerevision} from {mod.release} {mod.filename}")
 
   def get_module_revisions(self, mod_name):
     return self.mods.get(mod_name)
