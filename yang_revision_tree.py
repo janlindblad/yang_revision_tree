@@ -14,6 +14,9 @@ class ParseError(Exception):
     return self.msg
 
 class Module:
+  """
+  The Module class contains meta information about one YANG Module.
+  """
   csv_fieldnames = ['modulename', 'modulerevision',
       'release', 'checksum', 'namespace', 'prefix',
       'kind', 'filename']
@@ -135,6 +138,11 @@ class Module:
     return [self.modinfo.get(fieldname,'') for fieldname in Module.csv_fieldnames]
 
 class Library:
+  """
+  The Library class represents a collection of releases, 
+  where each release consists of a set of Modules.
+  """
+
   NEW_MODULE = 0
   NEW_REVISION = 1
   KNOWN_REVISION = 2
@@ -150,19 +158,21 @@ class Library:
   db_prefix = "REVINFO-"
   db_suffix = ".csv"
 
-  def __init__(self, library_dir=None, release_name=None, debug=False):
+  def __init__(self, library_dir=None, debug=False):
     self.mods = {}
     self.new_results = {}
     self.namespaces = {}
     self.prefixes = {}
     self.logs = []
     self.library_dir = library_dir
-    self.release_name = release_name
     self.modulepath = []
     self.debug = debug
 
-  def is_release_scanned(self):
-    out_libpath = self.get_output_libpath()
+  def is_release_scanned(self, release_name):
+    """
+    Returns True if a REVINFO file already exists for the current
+    """
+    out_libpath = self.get_output_libpath(release_name)
     if out_libpath and out_libpath.exists():
       return True
     return False
@@ -188,11 +198,8 @@ class Library:
     dbfiles = list(pathlib.Path(self.library_dir).glob(Library.db_prefix + "*" + Library.db_suffix))
     if self.debug: print(f"DBG: Found {len(dbfiles)} dbfiles to consult")
     for dbfile in dbfiles:
-      if str(dbfile) == Library.db_prefix + self.release_name + Library.db_suffix:
-        print(f"Not reading existing database file for current release, {dbfile}")
-      else:
-        print(f"Loading database file {dbfile}")
-        self.load_release(dbfile)
+      print(f"Loading database file {dbfile}")
+      self.load_release(dbfile)
 
   def load_release(self, dbfile):
     if self.debug: print(f"DBG: Reading release info {dbfile}")
@@ -244,15 +251,23 @@ class Library:
   def log_added(self, success_code, mods):
     self.logs += [(success_code, mods)]
 
-  def print_log(self):
+  def print_log(self, release_name):
+    if release_name:
+      print(f"Focusing on release {release_name}")
+    else:
+      print(f"Showing results for all releases")
     for (code, mods) in self.logs:
+      if release_name:
+        if not release_name in [mod.release for mod in mods]:
+          # Error not relevant for named release
+          continue
       if code == Library.NEW_MODULE:
         #print(f"New module  {mods[0].modulename}")
         pass
       elif code == Library.NEW_REVISION:
         print(f"New rev     {mods[0].modulename}/{mods[0].modulerevision}")
       elif code == Library.KNOWN_REVISION:
-        print(f"=          {mods[0].modulename}/{mods[0].modulerevision}")
+        print(f"=           {mods[0].modulename}/{mods[0].modulerevision}")
       elif code == Library.COLL_PREFIX:
         print(f"ERROR  ==>  Prefix collision between")
         for mod in mods:
@@ -281,12 +296,12 @@ class Library:
   def get_module_revisions(self, mod_name):
     return self.mods.get(mod_name)
 
-  def get_output_libpath(self):
-    if self.library_dir and self.release_name:
-      return pathlib.Path(self.library_dir, Library.db_prefix + self.release_name + Library.db_suffix)
+  def get_output_libpath(self, release_name):
+    if self.library_dir:
+      return pathlib.Path(self.library_dir, Library.db_prefix + release_name + Library.db_suffix)
 
-  def write_out_new_results(self):
-    outfile = self.get_output_libpath()
+  def write_out_new_results(self, release_name):
+    outfile = self.get_output_libpath(release_name)
     if not outfile:
       print(f"No release name given, scan result not saved")
       return
@@ -294,26 +309,18 @@ class Library:
       print(f"Output file '{outfile.name} already exists")
       return
     rows = 0
-    if True:#try:
-      with open(outfile, 'w', newline='') as csvfile:
-        revinfo_writer = csv.writer(csvfile, quoting=csv.QUOTE_MINIMAL)
-        revinfo_writer.writerow(Module.csv_fieldnames)
-        for mod in self.new_results.values():
-        #for revs in self.new_results.values():
-        #  print(f"revs = {revs} {revs.__dict__}")
-        #  for mod in revs.values():
-            revinfo_writer.writerow(mod.get_row())
-            rows += 1
-      print(f"Wrote module info for {rows} modules to {outfile}")
-    #except Exception as e:
-    #  print(f"Error, {e}")
-    #  # If an error occurred, ensure output file is removed
-    #  rows = 0
+    with open(outfile, 'w', newline='') as csvfile:
+      revinfo_writer = csv.writer(csvfile, quoting=csv.QUOTE_MINIMAL)
+      revinfo_writer.writerow(Module.csv_fieldnames)
+      for mod in self.new_results.values():
+        revinfo_writer.writerow(mod.get_row())
+        rows += 1
+    print(f"Wrote module info for {rows} modules to {outfile}")
     if not rows:
       outfile.unlink()
-      print(f"An exception occurred, {outfile} not written")
+      print(f"Empty scan result, {outfile} not written")
 
-  def scan_files(self, files_to_scan, debug=True):
+  def scan_release(self, release_name, files_to_scan, debug=True):
     module_info_dict = {}
     for filename in files_to_scan:
       filepath = pathlib.Path(filename)
@@ -326,16 +333,18 @@ class Library:
       for current_filepath in filepaths:
         try:
           module_info_dict[current_filepath.name] = Module(
-            current_filepath, self.modulepath, release=self.release_name, debug=debug)
+            current_filepath, self.modulepath, release=release_name, debug=debug)
         except ParseError as pe:
           warning(f"Skipping {current_filepath.name},\n{pe.msg}")
     self.new_results = {**self.new_results, **module_info_dict}
     return self.add_modules(module_info_dict.values())
 
   def show_scan_results(self):
-    print("Scan results")
+    print("===== Scan results =====")
     for mod in self.mods:
       print(mod)
+
+# Top level helper functions
 
 def error(msg):
   print(f"### Error: {msg}")
@@ -392,24 +401,26 @@ def main():
     print(f'No library directory specified')
     return
 
-  print(f'Reading library:')
-  load_lib = Library(library_dir=library_dir, release_name=release_name, debug=debug)
+  print(f'===== Reading library =====')
+  load_lib = Library(library_dir=library_dir, debug=debug)
   load_lib.load()
 
-  print(f'Scanning {len(files_to_scan)} locations:')
   if debug: print(f'DBG: Files to scan: {files_to_scan}')
-  if not load_lib.is_release_scanned():
-    load_lib.scan_files(files_to_scan, debug=debug)
-    print(f'Writing database file {release_name}:')
-    load_lib.write_out_new_results()
-    if print_scan:
-      if debug: print(f'DBG: Showing scan results:')
-      load_lib.show_scan_results()#scan_lib.show_scan_results()
-  #load_lib.print_log()#scan_lib.print_log()
+  if release_name:
+    print(f'===== Scanning =====')
+    if not load_lib.is_release_scanned(release_name):
+      print(f'Scanning {len(files_to_scan)} locations:')
+      load_lib.scan_release(release_name, files_to_scan, debug=debug)
+      print(f'Writing database file for {release_name}:')
+      load_lib.write_out_new_results(release_name)
+      if print_scan:
+        if debug: print(f'DBG: Showing scan results:')
+        load_lib.show_scan_results()#scan_lib.show_scan_results()
+    else:
+      print(f'Release {release_name} already scanned, skipping scan')
   if debug: print(f'DBG: Load: {files_to_scan}')
-  print(f'Scan result:')
-  load_lib.scan_files(files_to_scan, debug=debug)
-  load_lib.print_log()
+  print(f'===== Scan result =====')
+  load_lib.print_log(release_name)
 
 if __name__ == '__main__':
   main()
