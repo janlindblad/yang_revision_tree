@@ -261,11 +261,16 @@ class Library:
       print(f"Focusing on release {release_name}")
     else:
       print(f"Showing results for all releases")
+    summary = {}
+    issue_count = 0
     for (code, mods) in self.logs:
       if release_name:
         if not release_name in [mod.release for mod in mods]:
           # Error not relevant for named release
           continue
+      if code > Library.ERROR_BASE:
+        summary[code] = summary.get(code,0) + 1
+        issue_count += 1
       if code == Library.NEW_MODULE:
         #print(f"New module  {mods[0].modulename}")
         pass
@@ -297,6 +302,10 @@ class Library:
         print(f"ERROR {code} ==>  Generic error with")
         for mod in mods:
           print(f"             {mod.modulename}/{mod.modulerevision} from {mod.release} {mod.filename}")
+    if issue_count:
+      print(f"Bottom line: {issue_count} issues detected ({summary})")
+    else:
+      print(f"Bottom line: No issues detected. Congrats!")
 
   def get_module_revisions(self, mod_name):
     return self.mods.get(mod_name)
