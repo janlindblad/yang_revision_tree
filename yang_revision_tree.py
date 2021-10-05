@@ -2,6 +2,11 @@
 #
 # YANG Revision Tree
 # (C) 2021 Cisco Systems, Jan Lindblad <jlindbla@cisco.com>
+#
+# Tool to scan YANG modules in a product release to check that
+# - That different modules do not have the same prefix or namespace
+# - That different revisions of the same module do not have different prefix or namespace
+# - That modules with different content have different revisions
 
 import os, sys, getopt, pathlib, subprocess, hashlib, csv, collections
 
@@ -196,7 +201,7 @@ class Library:
     dbfiles = list(pathlib.Path(self.library_dir).glob(Library.db_prefix + "*" + Library.db_suffix))
     if self.debug: print(f"DBG: Found {len(dbfiles)} dbfiles to consult")
     for dbfile in dbfiles:
-      print(f"Loading database file {dbfile}")
+      print(f"Loading metadata file {dbfile}")
       self.load_release(dbfile)
 
   def load_release(self, dbfile):
@@ -323,6 +328,7 @@ class Library:
   def scan_release(self, release_name, files_to_scan, debug=True):
     module_info_dict = {}
     for filename in files_to_scan:
+      print(f"- Scanning {filename}")
       filepath = pathlib.Path(filename)
       if filepath.is_dir():
         self.modulepath += [filepath]
@@ -357,13 +363,34 @@ def error_file_line(filename, line, msg):
   error(f"{filename}:{line}: {msg}")
 
 def usage():
-  print(f'''{sys.argv[0]}
-    [-l | --library <directory with saved module info>]
-    [-r | --release <name of the release to store new modules/revisions as coming from>] 
-    [-p | --print   
-    <modules-to-scan>
-  Scans YANG modules for duplicate prefixes and revision dates.
-  Uses Yanger, a YANG compiler you need to install.''')
+  print(f'''{sys.argv[0]} -l lib_dir [-r release_name] [yang-dir...]
+
+    Scans YANG modules in a product release to check that
+    - Different modules do not have the same prefix or namespace
+    - Different revisions of the same module do not have different prefix or namespace
+    - Modules with different content have different revisions
+
+    lib_dir is a directory where this tool will read and write metadata files about
+    each release. All use of this tool requires specifying this directory. The first time,
+    just point to a blank directory.
+
+    Use case: Add metadata for a new release
+    Specify release name using -r, and the path(s) to YANG directories to scan
+    You will get a metadata file for the named release in lib_dir
+    If there are issues with this release relative previously scanned releases,
+    they will be shown.
+
+    Use case: Show compliance for a given release
+    Specify release name using -r
+    You may also give the path(s) to YANG directories to scan. If they have already
+    been scanned, the previosly available data will be used.
+    If there are issues with this release relative other scanned releases,
+    they will be shown.
+
+    Use case: Show compliance for all releases
+    Just run the tool pointing to a lib_dir using -l
+
+    This tool depends on yanger, a YANG compiler you need to install.''')
 
 def main():
   debug = False
@@ -398,7 +425,11 @@ def main():
     pathlib.Path(library_dir).mkdir(parents=False)
 
   if not library_dir:
-    print(f'No library directory specified')
+    print(f'No library directory specified.')
+    return
+
+  if files_to_scan and not release_name:
+    print(f'Modules to scan given, but no release name.')
     return
 
   print(f'===== Reading library =====')
@@ -411,7 +442,7 @@ def main():
     if not load_lib.is_release_scanned(release_name):
       print(f'Scanning {len(files_to_scan)} locations:')
       load_lib.scan_release(release_name, files_to_scan, debug=debug)
-      print(f'Writing database file for {release_name}:')
+      print(f'Writing metadata file for {release_name}:')
       load_lib.write_out_new_results(release_name)
       if print_scan:
         if debug: print(f'DBG: Showing scan results:')
