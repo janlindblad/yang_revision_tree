@@ -37,14 +37,33 @@ class Module:
 
   def __init__(self, filepath_or_csvrow, modulepath=[], release = '', debug=False):
     if isinstance(filepath_or_csvrow, collections.OrderedDict):
+      # Loading data from file
       self._populate(filepath_or_csvrow)
     else:
+      # Scanning YANG module using Yanger
       self._scan(filepath_or_csvrow, modulepath, release, debug)
 
   def _populate(self, csvrow):
     self.modinfo = dict(csvrow)
 
   def _scan(self, filepath, modulepath, release, debug): 
+    """
+    Scan YANG module using Yanger "sn"-output format, then parse that data
+    The sn-output contains a lot of meta information about the module. 
+    Here's an example of the sn-data format:
+    %% module: tailf-ncs
+    #module{
+      name = 'tailf-ncs'
+      yang_version = '1.1'
+      modulename = 'tailf-ncs'
+      namespace = 'http://tail-f.com/ns/ncs'
+      prefix = ncs
+      modulerevision = <<"2021-02-09">>
+      filename = "tailf-ncs.yang"
+    ...
+    }
+    ...
+    """
     if debug:
       print(f"Scanning {filepath.name}")
     result = subprocess.run(
@@ -60,19 +79,6 @@ class Module:
     for (lineno, line) in enumerate(result.stdout.split('\n'),1):
       if line == '}':
         break # The module section is done when we find an unindented end-brace
-      # Data format:
-      # %% module: tailf-ncs
-      # #module{
-      #   name = 'tailf-ncs'
-      #   yang_version = '1.1'
-      #   modulename = 'tailf-ncs'
-      #   namespace = 'http://tail-f.com/ns/ncs'
-      #   prefix = ncs
-      #   modulerevision = <<"2021-02-09">>
-      #   filename = "tailf-ncs.yang"
-      # ...
-      # }
-      # ...
       piece = line.split(" = ")
       if len(piece) != 2:
         continue
@@ -146,6 +152,7 @@ class Library:
   where each release consists of a set of Modules.
   """
 
+  # Classification codes used for the YANG modules found
   NEW_MODULE = 0
   NEW_REVISION = 1
   KNOWN_REVISION = 2
@@ -158,6 +165,7 @@ class Library:
 
   ANY_REVISION = None
 
+  # Name parts for metadata files
   db_prefix = "REVINFO-"
   db_suffix = ".csv"
 
@@ -173,7 +181,7 @@ class Library:
 
   def is_release_scanned(self, release_name):
     """
-    Returns True if a REVINFO file already exists for the current
+    Returns True if a REVINFO file already exists for the named release
     """
     out_libpath = self.get_output_libpath(release_name)
     if out_libpath and out_libpath.exists():
@@ -181,20 +189,33 @@ class Library:
     return False
 
   def get_module(self, mod_name, mod_rev):
+    """
+    Get metadata for a given module and revision. 
+    If revision is left as None, the metadata for any revision will be returned.
+    """
     if mod_rev == Library.ANY_REVISION:
       return self.mods[mod_name][list(self.mods[mod_name].keys())[0]]
     return self.mods[mod_name][mod_rev]
 
   def get_module_names(self):
+    """
+    Return names of all modules in library.
+    """
     return self.mods.keys()
 
   def get_module_revisions(self, mod_name):
+    """
+    Return all revisions of a given module in library.
+    """
     mod_revs = self.mods.get(mod_name)
     if not mod_revs:
       return []
     return mod_revs.keys()
 
   def load(self):
+    """
+    Load all REVINFO files in this library directory.
+    """
     if not self.library_dir:
       return
 
@@ -205,12 +226,20 @@ class Library:
       self.load_release(dbfile)
 
   def load_release(self, dbfile):
+    """
+    Load one REVINFO file from this library directory.
+    """
     if self.debug: print(f"DBG: Reading release info {dbfile}")
     with open(dbfile) as csvfile:
       revinfo_reader = csv.DictReader(csvfile)
       self.add_modules([Module(row) for row in revinfo_reader])
 
   def add_modules(self, mods, debug=False):
+    """
+    Add a set of modules to this library, while checking if their
+    metadata is compatible with already existing modules.
+    Each module is logged in the added or error lists of this library.
+    """
     for mod in mods:
       if mod.modulename not in self.get_module_names():
         # New module
@@ -256,7 +285,11 @@ class Library:
   def log_added(self, success_code, mods):
     self.logs += [(success_code, mods)]
 
-  def print_log(self, release_name):
+  def print_log(self, release_name = None):
+    """
+    Display the entries in the error log. If release_name is specified, 
+    the output is limited to only include entries that involve that release.
+    """
     if release_name:
       print(f"Focusing on release {release_name}")
     else:
@@ -306,6 +339,7 @@ class Library:
       print(f"Bottom line: {issue_count} issues detected ({summary})")
     else:
       print(f"Bottom line: No issues detected. Congrats!")
+    return issue_count
 
   def get_module_revisions(self, mod_name):
     return self.mods.get(mod_name)
@@ -315,6 +349,11 @@ class Library:
       return pathlib.Path(self.library_dir, Library.db_prefix + release_name + Library.db_suffix)
 
   def write_out_new_results(self, release_name):
+    """
+    Writes a .csv file with module metadata for a release.
+    This file can be loaded when initializing the Library, the next time
+    this tool runs.
+    """
     outfile = self.get_output_libpath(release_name)
     if not outfile:
       print(f"No release name given, scan result not saved")
@@ -335,6 +374,10 @@ class Library:
       print(f"Empty scan result, {outfile} not written")
 
   def scan_release(self, release_name, files_to_scan, debug=True):
+    """
+    Extract metadata for all modules in specified files/directories,
+    and add them to the library as belonging to release_name. 
+    """
     module_info_dict = {}
     for filename in files_to_scan:
       print(f"- Scanning {filename}")
@@ -426,7 +469,7 @@ def main():
       debug = True
     else:
       print('Unknown option "%s", exiting.'%opt)
-      sys.exit(2)
+      return 2
 
   files_to_scan = args
 
@@ -435,11 +478,11 @@ def main():
 
   if not library_dir:
     print(f'No library directory specified.')
-    return
+    return 3
 
   if files_to_scan and not release_name:
-    print(f'Modules to scan given, but no release name.')
-    return
+    print(f'Modules to scan given, but no release name specified.')
+    return 4
 
   print(f'===== Reading library =====')
   load_lib = Library(library_dir=library_dir, debug=debug)
@@ -455,12 +498,13 @@ def main():
       load_lib.write_out_new_results(release_name)
       if print_scan:
         if debug: print(f'DBG: Showing scan results:')
-        load_lib.show_scan_results()#scan_lib.show_scan_results()
+        load_lib.show_scan_results()
     else:
       print(f'Release {release_name} already scanned, skipping scan')
   if debug: print(f'DBG: Load: {files_to_scan}')
   print(f'===== Scan result =====')
-  load_lib.print_log(release_name)
+  issues = load_lib.print_log(release_name)
+  return 0 if not issues else 1
 
 if __name__ == '__main__':
-  main()
+  sys.exit(main())
